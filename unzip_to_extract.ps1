@@ -103,11 +103,77 @@ try {
 
     if ($rootFolderCount -ge 1) {
         Write-Host "[INFO] ルートフォルダあり → そのまま解凍"
-        $extractProcess = Start-Process -FilePath $ZIP_EXE -ArgumentList "x", "`"$zipPath`"", "-o`"$DEST_DIR`"", "-y" -NoNewWindow -Wait -PassThru
+        
+        # ルートフォルダ名を取得
+        $rootFolderName = $rootFolders[0]
+        $targetRootFolder = Join-Path $DEST_DIR $rootFolderName
+        
+        # 同名のフォルダが既に存在する場合、日時を付与
+        if (Test-Path $targetRootFolder) {
+            Write-Host ""
+            Write-Host "[警告] 同名のフォルダが既に存在します: $targetRootFolder" -ForegroundColor Yellow
+            Write-Host "[警告] フォルダ名に日時を付与して解凍します。" -ForegroundColor Yellow
+            Write-Host ""
+            
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+            $newRootFolderName = "$rootFolderName`_$timestamp"
+            $targetRootFolder = Join-Path $DEST_DIR $newRootFolderName
+            Write-Host "[INFO] 新しいフォルダ名: $newRootFolderName"
+            
+            # 一時的に新しいフォルダ名で解凍するため、ZIPファイル内のパスを置換する必要がある
+            # しかし、7-Zipでは直接パスを置換できないため、一時フォルダに解凍してから移動する方法を使用
+            $tempExtractDir = Join-Path $env:TEMP "unzip_temp_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+            $extractProcess = Start-Process -FilePath $ZIP_EXE -ArgumentList "x", "`"$zipPath`"", "-o`"$tempExtractDir`"", "-y" -NoNewWindow -Wait -PassThru
+            
+            if ($extractProcess.ExitCode -eq 0) {
+                # 解凍されたルートフォルダをリネームして移動
+                $extractedRootFolder = Join-Path $tempExtractDir $rootFolderName
+                if (Test-Path $extractedRootFolder) {
+                    Move-Item -Path $extractedRootFolder -Destination $targetRootFolder -Force
+                    # 移動後にフォルダの作成日時を現在の日時に設定
+                    (Get-Item $targetRootFolder).CreationTime = Get-Date
+                    (Get-Item $targetRootFolder).LastWriteTime = Get-Date
+                }
+                # 一時フォルダを削除
+                Remove-Item $tempExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            $extractProcess = Start-Process -FilePath $ZIP_EXE -ArgumentList "x", "`"$zipPath`"", "-o`"$DEST_DIR`"", "-y" -NoNewWindow -Wait -PassThru
+            
+            if ($extractProcess.ExitCode -eq 0) {
+                # 解凍後にフォルダの作成日時を現在の日時に設定
+                if (Test-Path $targetRootFolder) {
+                    (Get-Item $targetRootFolder).CreationTime = Get-Date
+                    (Get-Item $targetRootFolder).LastWriteTime = Get-Date
+                }
+            }
+        }
     } else {
         Write-Host "[INFO] ルートフォルダなし → ZIP名のフォルダに解凍"
         $targetDir = Join-Path $DEST_DIR $zipName
+        
+        # 同名のフォルダが既に存在する場合、日時を付与
+        if (Test-Path $targetDir) {
+            Write-Host ""
+            Write-Host "[警告] 同名のフォルダが既に存在します: $targetDir" -ForegroundColor Yellow
+            Write-Host "[警告] フォルダ名に日時を付与して解凍します。" -ForegroundColor Yellow
+            Write-Host ""
+            
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+            $newZipName = "$zipName`_$timestamp"
+            $targetDir = Join-Path $DEST_DIR $newZipName
+            Write-Host "[INFO] 新しいフォルダ名: $newZipName"
+        }
+        
         $extractProcess = Start-Process -FilePath $ZIP_EXE -ArgumentList "x", "`"$zipPath`"", "-o`"$targetDir`"", "-y" -NoNewWindow -Wait -PassThru
+        
+        if ($extractProcess.ExitCode -eq 0) {
+            # 解凍後にフォルダの作成日時を現在の日時に設定
+            if (Test-Path $targetDir) {
+                (Get-Item $targetDir).CreationTime = Get-Date
+                (Get-Item $targetDir).LastWriteTime = Get-Date
+            }
+        }
     }
 
     if ($extractProcess.ExitCode -ne 0) {
